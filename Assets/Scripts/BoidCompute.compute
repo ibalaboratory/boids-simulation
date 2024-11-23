@@ -1,0 +1,48 @@
+﻿/*
+Copyright (c) 2019 Sebastian Lague
+Released under the MIT license
+https://github.com/SebLague/Boids/blob/master/LICENSE
+*/
+//compute shaderを用いて近傍探索計算を高速化する。
+
+#pragma kernel CSMain
+static const int threadGroupSize = 1024;
+
+struct Boid {
+    float3 position;
+    float3 direction;
+    int type;
+
+    float3 flockHeading;
+    float3 flockCentre;
+    float3 separationHeading;
+    int numFlockmates;
+};
+
+RWStructuredBuffer<Boid> boids;
+int numBoids;
+float viewRadius;
+float avoidRadius;
+
+[numthreads(threadGroupSize,1,1)]   //1024*1*1=1024スレッドを並列に実行
+void CSMain (uint3 id : SV_DispatchThreadID)
+{
+    for (int indexB = 0; indexB < numBoids; indexB ++) {
+        if (id.x != indexB) {
+            Boid boidB = boids[indexB];
+            float3 offset = boidB.position - boids[id.x].position;
+            float sqrDst = offset.x * offset.x + offset.y * offset.y + offset.z * offset.z;
+
+            //boids[indexB]が探索範囲内かつ同種族なら、群れの重心と進行方向をアップデートする。
+            if (sqrDst < viewRadius * viewRadius && boidB.type==boids[id.x].type) {
+                boids[id.x].numFlockmates += 1;
+                boids[id.x].flockHeading += boidB.direction;
+                boids[id.x].flockCentre += boidB.position;
+
+                if (sqrDst < avoidRadius * avoidRadius) {
+                    boids[id.x].separationHeading -= offset / sqrDst;
+                }
+            }
+        }
+    }
+}
